@@ -1,0 +1,1 @@
+Namespace(data_device='cuda', eval=True, images='images_8', model_path='output/llff/horns', n_views=3, resolution=-1, sh_degree=3, source_path='/Data2/RC_Wu/3dgs/FSGS/dataset_ply/llff/horns', white_background=False)
