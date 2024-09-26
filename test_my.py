@@ -66,9 +66,9 @@ class SparseGAState():
             shutil.rmtree(self.cache_dir)
         self.cache_dir = None
 
-def reconstruct_scene(filepath, ori_camera_path, image_size, model, device, 
+def reconstruct_scene(filepath, image_size, model, device, 
                       optim_params, cache_dir, output_colmap_path,
-                      n_views, shared_intrinsics=True, min_conf_thr=2):
+                      n_views, know_camera=True, shared_intrinsics=True, min_conf_thr=2):
     """
     Perform 3D reconstruction and return point cloud, camera intrinsics, and poses.
     
@@ -112,54 +112,69 @@ def reconstruct_scene(filepath, ori_camera_path, image_size, model, device,
     imgs = to_numpy(scene_.imgs)
     # # Extract point cloud
     pts3d, _, confs = scene_.get_dense_pts3d(clean_depth=True)
-    focals = scene_.get_focals()
-    principal_points = scene_.get_principal_points()  # 获取主点
-    # 构建相机内参矩阵 K
-    camera_intrinsics = torch.stack([
-        focals, torch.zeros_like(focals), principal_points[:, 0],
-        torch.zeros_like(focals), focals, principal_points[:, 1],
-        torch.zeros_like(focals), torch.zeros_like(focals), torch.ones_like(focals)
-    ]).reshape(-1, 3, 3)  # 每个相机的内参矩阵
-    camera_intrinsics = to_numpy(camera_intrinsics)
-    camera_poses = to_numpy(scene_.get_im_poses())
-    msk = to_numpy([c > min_conf_thr for c in confs])
-    
-    
-    # trasform to the right
-    cameras_intrinsic_file = os.path.join(ori_camera_path, "sparse/0", "cameras.bin")
-    cameras_extrinsic_file = os.path.join(ori_camera_path, "sparse/0", "images.bin")
-    cam_extrinsics = read_extrinsics_binary(cameras_extrinsic_file)
-    cam_intrinsics = read_intrinsics_binary(cameras_intrinsic_file)
+    if know_camera:
+        # 内参 TODO 用于未知相机位姿时
+        # focals = scene_.get_focals()
+        # principal_points = scene_.get_principal_points()  # 获取主点
+        # 构建相机内参矩阵 K
+        # camera_intrinsics = torch.stack([
+        #     focals, torch.zeros_like(focals), principal_points[:, 0],
+        #     torch.zeros_like(focals), focals, principal_points[:, 1],
+        #     torch.zeros_like(focals), torch.zeros_like(focals), torch.ones_like(focals)
+        # ]).reshape(-1, 3, 3)
+        # camera_intrinsics = to_numpy(camera_intrinsics)
         
-    camera_poses_est = np.zeros((n_views, 4, 4))
-    camera_poses_ori = np.zeros((n_views, 4, 4))
-    for i in range(n_views):
-        camera_poses_est[i] = np.linalg.inv(camera_poses)
-        for j in range(len(cam_extrinsics)):
-            if train_img_list[i-1][-3:] == cam_extrinsics[j].name[-3:]:
-                R = np.transpose(qvec2rotmat(cam_extrinsics[j].qvec))
-                T = np.array(cam_extrinsics[j].tvec)
-                camera_poses_ori[i, :3, :3] = R
-                camera_poses_ori[i, :3, 3] = T
-                break
-
-    R_e2o, t_e2o = estimate_transform(camera_poses_est, camera_poses_ori)
-    camera_poses = transform_poses(camera_poses, R_e2o, t_e2o)
+        camera_poses = to_numpy(scene_.get_im_poses())
+        msk = to_numpy([c > min_conf_thr for c in confs])
     
-    # save
-    save_colmap_cameras(ori_size, camera_intrinsics, os.path.join(output_colmap_path, 'cameras.txt'))
-    save_colmap_images(camera_poses, os.path.join(output_colmap_path, 'images.txt'), train_img_list)
+        # trasform to the right
+        # 生成一个字符串“n_views”，其中n的值为n_views，后面的“_views”保留
+        output_colmap_path = os.path.join(output_colmap_path, f"{n_views}_views")
+        cameras_intrinsic_file = os.path.join(filepath, f"{n_views}_views", "colmap", "trangulated", "cameras.bin")
+        cameras_extrinsic_file = os.path.join(filepath, f"{n_views}_views", "colmap", "trangulated", "images.bin")
+        cam_extrinsics = read_extrinsics_binary(cameras_extrinsic_file)
+        cam_intrinsics = read_intrinsics_binary(cameras_intrinsic_file)
+            
+        camera_poses_est = np.zeros((n_views, 4, 4))
+        camera_poses_ori = np.zeros((n_views, 4, 4))
+        for i in range(n_views):
+            camera_poses_est[i] = np.linalg.inv(camera_poses)
+            for j in range(len(cam_extrinsics)):
+                if train_img_list[i-1][-3:] == cam_extrinsics[j].name[-3:]:
+                    R = np.transpose(qvec2rotmat(cam_extrinsics[j].qvec))
+                    T = np.array(cam_extrinsics[j].tvec)
+                    camera_poses_ori[i, :3, :3] = R
+                    camera_poses_ori[i, :3, 3] = T
+                    break
 
-    pts_4_3dgs = np.concatenate([p[m.ravel()] for p, m in zip(pts3d, msk)])
-    color_4_3dgs = np.concatenate([p[m] for p, m in zip(imgs, msk)])
-    valid_msk = np.isfinite(pts_4_3dgs.sum(axis=1))
-    color_4_3dgs = (color_4_3dgs * 255.0).astype(np.uint8)
-    pts_4_3dgs = pts_4_3dgs[valid_msk]
-    color_4_3dgs = color_4_3dgs[valid_msk]
-    pts_4_3dgs = transform_pcl(pts_4_3dgs, R_e2o, t_e2o)
-    storePly(os.path.join(output_colmap_path, "points3D.ply"), pts_4_3dgs, color_4_3dgs)
-
-    return point_cloud, camera_intrinsics, camera_poses
+        R_e2o, t_e2o = estimate_transform(camera_poses_est, camera_poses_ori)
+        
+        # camera_poses = transform_poses(camera_poses, R_e2o, t_e2o) # TODO 用于未知相机位姿时
+        camera_poses = camera_poses_ori
+    
+        target_directory = os.path.join(filepath, f"{n_views}_views", "mast3r")
+        os.makedirs(target_directory, exist_ok=True)
+        target_cameras_file = os.path.join(target_directory, "cameras.bin")
+        target_images_file = os.path.join(target_directory, "images.bin")
+        shutil.copy(cameras_intrinsic_file, target_cameras_file)
+        shutil.copy(cameras_extrinsic_file, target_images_file)
+        
+        pts_4_3dgs = np.concatenate([p[m.ravel()] for p, m in zip(pts3d, msk)])
+        color_4_3dgs = np.concatenate([p[m] for p, m in zip(imgs, msk)])
+        valid_msk = np.isfinite(pts_4_3dgs.sum(axis=1))
+        color_4_3dgs = (color_4_3dgs * 255.0).astype(np.uint8)
+        pts_4_3dgs = pts_4_3dgs[valid_msk]
+        color_4_3dgs = color_4_3dgs[valid_msk]
+        pts_4_3dgs = transform_pcl(pts_4_3dgs, R_e2o, t_e2o)
+        storePly(os.path.join(filepath, f"{n_views}_views", "mast3r", "points3D.ply"), pts_4_3dgs, color_4_3dgs)
+        
+    else:
+        # save TODO 并不完整
+        save_colmap_cameras(ori_size, cam_intrinsics, os.path.join(output_colmap_path, 'cameras.txt'))
+        save_colmap_images(camera_poses, os.path.join(output_colmap_path, 'images.txt'), train_img_list)
+        pass
+    
+    return point_cloud, cam_intrinsics, camera_poses
 
 def save_point_cloud(point_cloud, output_file):
     """Save point cloud as PLY file."""
@@ -169,17 +184,19 @@ def save_point_cloud(point_cloud, output_file):
 # Example usage
 if __name__ == "__main__":
     parser = get_args_parser()
-    # parser.add_argument("--output_path", type=str, required=True, help="Path to model output")
-    # parser.add_argument("--sparse_img_path", type=str, default=None, help="Path to sparse images")
     parser.add_argument("--n_views", type=int, default=3, help="Number of views")
     parser.add_argument("--output_colmap_path", type=str, default=None, help="Path to output COLMAP")
-    parser.add_argument("--img_path", type=str, default=None, help="Path to imgs")
+    parser.add_argument("--dataset_path", type=str, default=None, help="Path to imgs")
+    parser.add_argument("--dataset_name", type=str, default=None, help="Name of dataset")
+    parser.add_argument("--scene_name", type=str, default=None, help="Name of scene")
     parser.add_argument("--cache_dir", type=str, default=None, help="Path to cache directory")
     parser.add_argument("--llffhold", type=int, default=8, help="LLFF hold")
     parser.add_argument("--shared_intrinsics", action="store_true", help="Use shared intrinsics")
-    parser.add_argument("--ori_camera_path", type=str, default=None, help="Path to original camera")
+    parser.add_argument("--know_camera", action="store_true", help="Use known camera poses")
     args = parser.parse_args()
-    filepath = args.img_path
+
+    filepath = os.path.join(args.dataset_path, args.dataset_name, args.scene_name)
+    output_mast3r_path = os.path.join(filepath, "mast3r")
     image_size = 512
     if args.weights is not None:
         weights_path = args.weights
@@ -193,9 +210,9 @@ if __name__ == "__main__":
     }
     
     point_cloud, camera_intrinsics, camera_poses = reconstruct_scene(
-        filepath, args.ori_camera_path, image_size, model, device, optim_params, args.cache_dir,
+        filepath, image_size, model, device, optim_params, args.cache_dir,
         args.output_colmap_path, args.n_views, args.shared_intrinsics,
-        min_conf_thr=2
+        args.know_camera, min_conf_thr=2
     )
     
     
