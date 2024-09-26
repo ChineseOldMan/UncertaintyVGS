@@ -67,8 +67,7 @@ class SparseGAState():
         self.cache_dir = None
 
 def reconstruct_scene(filepath, image_size, model, device, 
-                      optim_params, cache_dir, output_colmap_path,
-                      n_views, know_camera=True, shared_intrinsics=True, min_conf_thr=2):
+                      optim_params, cache_dir, n_views, know_camera=True, shared_intrinsics=True, min_conf_thr=2):
     """
     Perform 3D reconstruction and return point cloud, camera intrinsics, and poses.
     
@@ -185,11 +184,11 @@ def save_point_cloud(point_cloud, output_file):
 if __name__ == "__main__":
     parser = get_args_parser()
     parser.add_argument("--n_views", type=int, default=3, help="Number of views")
-    parser.add_argument("--output_colmap_path", type=str, default=None, help="Path to output COLMAP")
+    parser.add_argument("--cache_dir", type=str, default=None, help="Path to cache directory")
+    # parser.add_argument("--output_colmap_path", type=str, default=None, help="Path to output COLMAP")
     parser.add_argument("--dataset_path", type=str, default=None, help="Path to imgs")
     parser.add_argument("--dataset_name", type=str, default=None, help="Name of dataset")
-    parser.add_argument("--scene_name", type=str, default=None, help="Name of scene")
-    parser.add_argument("--cache_dir", type=str, default=None, help="Path to cache directory")
+    parser.add_argument("--scene_name", type=str, default=None, help="Name of scene")   
     parser.add_argument("--llffhold", type=int, default=8, help="LLFF hold")
     parser.add_argument("--shared_intrinsics", action="store_true", help="Use shared intrinsics")
     parser.add_argument("--know_camera", action="store_true", help="Use known camera poses")
@@ -211,7 +210,7 @@ if __name__ == "__main__":
     
     point_cloud, camera_intrinsics, camera_poses = reconstruct_scene(
         filepath, image_size, model, device, optim_params, args.cache_dir,
-        args.output_colmap_path, args.n_views, args.shared_intrinsics,
+        args.n_views, args.shared_intrinsics,
         args.know_camera, min_conf_thr=2
     )
     
