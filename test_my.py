@@ -15,8 +15,8 @@ from scene.colmap_loader import read_extrinsics_binary, read_intrinsics_binary, 
 import copy
 import shutil
 import os
-# 设置gpu为gpu0
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 def estimate_transform(source_P, target_P):
     A = source_P[:, :3, 3]
@@ -54,6 +54,7 @@ def transform_pcl(point_clouds, R, t):
     homogeneous_points = np.hstack((point_clouds, ones))  # 将点云转换为齐次坐标
     transformed_homogeneous_points = homogeneous_points @ np.vstack((R, t))  # 矩阵乘法
     return transformed_homogeneous_points[:, :3]
+
 class SparseGAState():
     def __init__(self, sparse_ga, cache_dir=None, outfile_name=None):
         self.sparse_ga = sparse_ga
@@ -197,7 +198,4 @@ if __name__ == "__main__":
         min_conf_thr=2
     )
     
-    # # Save results
-    # save_point_cloud(point_cloud, output_path + "output_point_cloud.ply")
-    # np.save(output_path + "camera_intrinsics.npy", camera_intrinsics)
-    # np.save(output_path + "camera_poses.npy", camera_poses)
+    

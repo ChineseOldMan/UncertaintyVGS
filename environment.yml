@@ -1,4 +1,4 @@
-name: fsgs
+name: uvgs
 channels:
   - pytorch
   - conda-forge
